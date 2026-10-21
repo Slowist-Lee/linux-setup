@@ -6,12 +6,15 @@
 ## 使用
 
 ```bash
-./init.sh                 # TUI 勾选工具
+./init.sh                 # 交互式勾选工具
 ./init.sh --list          # 查看模块及安装状态
 ./init.sh --check-network # 只检查外网/代理
 ./init.sh --only uv,codex # 非交互安装指定模块及依赖
 ./init.sh --all           # 非交互安装全部模块
 ```
+
+交互模式直接在当前终端内完成：输入编号切换勾选，回车确认。不会启动
+`whiptail/dialog` 全屏页面。
 
 交互模式下：
 
@@ -24,18 +27,23 @@
 代理成功后可以保存到 `~/.config/linux-setup/proxy.env`（权限 600）。安装器会把一个
 受管 source 块放到 `~/.bashrc` 和 `~/.zshrc` 顶部，重新登录后继续生效。
 
+`--check-network` 只检测 `NETWORK_CORE_URLS`（默认 GitHub）这类核心外网目标，
+不会把所有模块地址都当成硬性条件。检测会依次尝试当前代理、本机代理候选
+（默认 `127.0.0.1:17890`、`127.0.0.1:7890`）和直连，并对代理探测做一次重试；
+单次探测有连接和总时长上限，网络异常时会在有限时间内返回失败而不是卡住。
+
 ## 目录结构
 
 ```text
 linux-setup/
-├── run.sh                 # TUI、依赖解析、网络门禁和模块调度
+├── run.sh                 # 交互、依赖解析、网络门禁和模块调度
 ├── config/
 │   ├── settings.sh        # 可覆盖路径、版本和环境变量
 │   └── zshrc              # 可复现的 ~/.zshrc 模板
 ├── lib/
 │   ├── common.sh          # 日志、受管文件写入
 │   ├── network.sh         # 并行联网检测、代理交互和持久化
-│   └── tui.sh             # whiptail/dialog 封装及纯文本降级
+│   └── tui.sh             # 当前终端内的行式交互
 └── modules/
     ├── 10_miniconda.sh
     ├── 20_uv.sh
@@ -80,7 +88,7 @@ my_tool_install() {
 ```
 
 模块通过 `run.sh` 注册，必须同时提供 `<id>_is_installed` 和 `<id>_install`。
-安装函数返回非零时，TUI 会在最终报告中标记失败，但会继续执行后续模块。
+安装函数返回非零时，交互流程会在最终报告中标记失败，但会继续执行后续模块。
 
 ## 常用覆盖变量
 

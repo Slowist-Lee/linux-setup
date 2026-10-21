@@ -2,8 +2,11 @@
 # Mandatory external-network gate and proxy configuration.
 
 NETWORK_FAILURES=()
+NETWORK_RESULTS=()
 NETWORK_PROXY_TO_SAVE=""
 NETWORK_SAVE_PROXY=0
+NETWORK_ACTIVE_ROUTE=""
+NETWORK_ACTIVE_PROXY=""
 PROXY_BLOCK_BEGIN="# >>> linux-setup managed proxy >>>"
 PROXY_BLOCK_END="# <<< linux-setup managed proxy <<<"
 
@@ -14,7 +17,12 @@ network_clear_proxy() {
 }
 
 network_current_proxy() {
-  printf '%s' "${https_proxy:-${HTTPS_PROXY:-${http_proxy:-${HTTP_PROXY:-}}}}"
+  printf '%s' "${https_proxy:-${HTTPS_PROXY:-${http_proxy:-${HTTP_PROXY:-${all_proxy:-${ALL_PROXY:-}}}}}}"
+}
+
+network_mask_proxy() {
+  local proxy="$1"
+  printf '%s' "$proxy" | sed -E 's#(://)[^/@[:space:]]+@#\1***@#g'
 }
 
 network_normalize_proxy() {
@@ -35,24 +43,38 @@ network_set_proxy() {
   export https_proxy="$proxy"
   export HTTP_PROXY="$proxy"
   export HTTPS_PROXY="$proxy"
+  unset all_proxy ALL_PROXY
   export NO_PROXY="$NO_PROXY_VALUE"
   export no_proxy="$NO_PROXY_VALUE"
   printf '%s\n' "$proxy"
 }
 
+_network_http_code_ok() {
+  [[ "$1" =~ ^[23][0-9][0-9]$ ]]
+}
+
 _network_probe_url() {
   local url="$1"
-  local code=""
+  local code="" rc=0 err="" errfile
 
   if command -v curl >/dev/null 2>&1; then
+    errfile="$(mktemp)"
     code="$(curl -L -sS -o /dev/null \
       --connect-timeout "$NETWORK_CONNECT_TIMEOUT" \
       --max-time "$NETWORK_MAX_TIME" \
-      --range 0-0 -w '%{http_code}' "$url" 2>/dev/null || true)"
-    if [[ "$code" =~ ^[1-5][0-9][0-9]$ ]]; then
+      --range 0-0 -w '%{http_code}' "$url" 2>"$errfile")" || rc=$?
+    if [ "$rc" -eq 0 ] && _network_http_code_ok "$code"; then
       printf 'HTTP %s\n' "$code"
+      rm -f -- "$errfile"
       return 0
     fi
+    if [ "$rc" -ne 0 ]; then
+      err="$(tail -n 1 "$errfile" 2>/dev/null || true)"
+      printf '%s\n' "${err:-curl 退出码 $rc}"
+    else
+      printf 'HTTP %s\n' "$code"
+    fi
+    rm -f -- "$errfile"
     return 1
   fi
 
@@ -61,6 +83,73 @@ _network_probe_url() {
       printf 'reachable\n'
       return 0
     fi
+    printf 'wget 检测失败\n'
+  fi
+  return 1
+}
+
+_network_probe_with_curl() {
+  local url="$1"
+  shift
+  local code="" rc=0 errfile attempt
+
+  command -v curl >/dev/null 2>&1 || return 1
+  for ((attempt = 1; attempt <= NETWORK_DISCOVERY_ATTEMPTS; attempt++)); do
+    rc=0
+    errfile="$(mktemp)"
+    code="$(curl -L -sS -o /dev/null \
+      --connect-timeout "$NETWORK_DISCOVERY_CONNECT_TIMEOUT" \
+      --max-time "$NETWORK_DISCOVERY_MAX_TIME" \
+      --range 0-0 -w '%{http_code}' "$@" "$url" 2>"$errfile")" || rc=$?
+    rm -f -- "$errfile"
+    if [ "$rc" -eq 0 ] && _network_http_code_ok "$code"; then
+      return 0
+    fi
+    [ "$attempt" -lt "$NETWORK_DISCOVERY_ATTEMPTS" ] && sleep 1
+  done
+  return 1
+}
+
+network_probe_via_proxy() {
+  local proxy
+  proxy="$(network_normalize_proxy "$1")" || return 1
+  _network_probe_with_curl "$NETWORK_PROXY_PROBE_URL" --proxy "$proxy" --noproxy ''
+}
+
+network_probe_direct() {
+  _network_probe_with_curl "$NETWORK_PROXY_PROBE_URL" --noproxy '*'
+}
+
+# Prefer the inherited proxy, then common local proxy ports, then direct access.
+# The chosen route is exported to this process so installers use the same path.
+network_prepare_connectivity() {
+  local current candidate
+
+  NETWORK_ACTIVE_ROUTE=""
+  NETWORK_ACTIVE_PROXY=""
+  current="$(network_current_proxy)"
+
+  if [ -n "$current" ] && network_probe_via_proxy "$current"; then
+    NETWORK_ACTIVE_ROUTE="proxy"
+    NETWORK_ACTIVE_PROXY="$current"
+    return 0
+  fi
+
+  for candidate in $NETWORK_PROXY_CANDIDATES; do
+    candidate="$(network_normalize_proxy "$candidate")" || continue
+    [ "$candidate" = "$current" ] && continue
+    if network_probe_via_proxy "$candidate"; then
+      network_set_proxy "$candidate" >/dev/null
+      NETWORK_ACTIVE_ROUTE="proxy"
+      NETWORK_ACTIVE_PROXY="$candidate"
+      return 0
+    fi
+  done
+
+  if network_probe_direct; then
+    network_clear_proxy
+    NETWORK_ACTIVE_ROUTE="direct"
+    return 0
   fi
   return 1
 }
@@ -73,6 +162,7 @@ network_check_urls() {
   local tmpdir i rc=0
 
   NETWORK_FAILURES=()
+  NETWORK_RESULTS=()
   if [ "${#urls[@]}" -eq 0 ]; then
     urls=("https://github.com/")
   fi
@@ -99,6 +189,10 @@ network_check_urls() {
       local detail="unreachable"
       [ -s "${result_files[$i]}" ] && detail="$(head -n 1 "${result_files[$i]}")"
       NETWORK_FAILURES+=("${urls[$i]} — $detail")
+    else
+      local detail="reachable"
+      [ -s "${result_files[$i]}" ] && detail="$(head -n 1 "${result_files[$i]}")"
+      NETWORK_RESULTS+=("${urls[$i]} — $detail")
     fi
   done
   rm -rf -- "$tmpdir"
@@ -193,6 +287,15 @@ network_require() {
   local choice
 
   while true; do
+    if network_prepare_connectivity; then
+      if [ "$NETWORK_ACTIVE_ROUTE" = "proxy" ]; then
+        ok "使用代理 $(network_mask_proxy "$NETWORK_ACTIVE_PROXY")"
+      else
+        warn "未使用代理，当前为直连"
+      fi
+    else
+      warn "未自动找到可用代理，将按当前环境继续检测"
+    fi
     tui_infobox "正在并行检测外网连通性，请稍候…"
     if network_check_urls "${urls[@]}"; then
       ok "外网连通性检测通过（${#urls[@]} 个目标）"

@@ -119,7 +119,7 @@ select_modules_tui() {
     args+=("$id" "$(printf '%-20s [%s] %s' "${REG_NAME[$id]}" "$(module_status_label "$id")" "${REG_DESCRIPTION[$id]}")" "$state")
   done
   if ! output="$(tui_checklist "选择要安装的工具" \
-      "空格勾选，回车确认。已安装模块默认会跳过，可稍后选择强制重跑。\n\n依赖项会自动补齐。" \
+      "输入编号切换选择，回车确认。已安装模块默认会跳过，可稍后选择强制重跑。\n\n依赖项会自动补齐。" \
       "${args[@]}")"; then
     return 1
   fi
@@ -227,14 +227,13 @@ final_report() {
   if [ "${#FINAL_FAILED[@]}" -gt 0 ]; then
     text+="\n\n失败：${#FINAL_FAILED[@]}"
     for id in "${FINAL_FAILED[@]}"; do text+="\n  ✘ ${REG_NAME[$id]}"; done
-    text+="\n\n可重新运行 TUI，只勾选失败项。"
+    text+="\n\n可重新运行安装器，只勾选失败项。"
   else
     text+="\n\n建议重新登录，或执行：source ~/.bashrc"
   fi
   local rendered
   printf -v rendered '%b' "$text"
   printf '%s\n' "$rendered"
-  tui_msgbox "安装结果" "$text" || true
 }
 
 sync_network_profile() {
@@ -346,28 +345,51 @@ noninteractive_flow() {
 }
 
 check_network_only() {
-  local -A selected=()
-  local -a modules=()
-  local id
-  for id in "${MODULE_ORDER[@]}"; do
-    selected[$id]=1
-  done
-  mapfile -t modules < <(normalize_selection_order)
+  local -a urls=()
+  local url
   FORCE_REINSTALL=0
-  if ensure_network_for_modules "${modules[@]}"; then
-    sync_network_profile
-    ok "外网连通性检测通过"
+
+  if [ -n "${NETWORK_CHECK_URLS:-}" ]; then
+    read -r -a urls <<< "$NETWORK_CHECK_URLS"
+  else
+    read -r -a urls <<< "$NETWORK_CORE_URLS"
+  fi
+  if [ "${#urls[@]}" -eq 0 ]; then
+    urls=("https://github.com/")
+  fi
+
+  if network_prepare_connectivity; then
+    if [ "$NETWORK_ACTIVE_ROUTE" = "proxy" ]; then
+      ok "使用代理 $(network_mask_proxy "$NETWORK_ACTIVE_PROXY")"
+    else
+      warn "未使用代理，当前为直连"
+    fi
+  else
+    warn "未自动找到可用代理，将按当前环境进行检测"
+  fi
+
+  if network_check_urls "${urls[@]}"; then
+    for url in "${NETWORK_RESULTS[@]}"; do
+      ok "$url"
+    done
+    ok "外网连通性检测通过（${#urls[@]} 个核心目标）"
     return 0
   fi
+
+  error "外网连通性检测失败"
+  for url in "${NETWORK_RESULTS[@]}"; do
+    ok "$url"
+  done
+  printf '%s\n' "$(network_failure_text)" >&2
   return 1
 }
 
 usage() {
   cat <<'HELP'
 用法：
-  ./init.sh                         打开 TUI，交互选择工具
-  ./init.sh --all                   无 TUI，安装全部模块（仍强制检查外网）
-  ./init.sh --only id1,id2          无 TUI，安装指定模块及其依赖
+  ./init.sh                         交互式选择工具（当前终端内完成）
+  ./init.sh --all                   无交互，安装全部模块（仍强制检查外网）
+  ./init.sh --only id1,id2          无交互，安装指定模块及其依赖
   ./init.sh --check-network         只检测外网与代理，不执行安装
   ./init.sh --list                  列出模块及安装状态
   ./init.sh --force                 强制重跑已安装的选中模块
