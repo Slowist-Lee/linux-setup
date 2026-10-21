@@ -5,7 +5,11 @@
 MINICONDA_INSTALLER="Miniconda3-latest-Linux-x86_64.sh"
 MINICONDA_URL="https://repo.anaconda.com/miniconda/${MINICONDA_INSTALLER}"
 MINICONDA_INSTALLER_PATH="${MINICONDA_INSTALLER_PATH:-/tmp/miniconda.sh}"
-MINICONDA_SHA256="${MINICONDA_SHA256:-e8b25b92b262499141c5bd57a98d3c008024185fa951494b9cd9b6d94e72338b}"
+# Empty means read the checksum from Anaconda's official index at install time.
+# Set this only when you need to pin a specific installer.
+MINICONDA_SHA256="${MINICONDA_SHA256:-}"
+MINICONDA_INDEX_URL="${MINICONDA_INDEX_URL:-https://repo.anaconda.com/miniconda/}"
+MINICONDA_INDEX_MAX_TIME="${MINICONDA_INDEX_MAX_TIME:-30}"
 CONDA_ROOT="${CONDA_ROOT:-$HOME/miniconda3}"
 
 SSD_ROOT="${SSD_ROOT:-/ssd/lixin/conda}"

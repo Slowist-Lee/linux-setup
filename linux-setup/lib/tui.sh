@@ -132,22 +132,22 @@ tui_checklist() {
       [ "${selected[$i]}" = "1" ] && mark="x"
       printf '  [%s] %2d) %s\n' "$mark" "$((i + 1))" "${labels[$i]}" >&2
     done
-    printf '\n输入编号切换选择；a=全选，n=全不选，r=恢复默认，回车=确认。\n' >&2
+    printf '\n输入编号切换选择；a=全选并确认，n=全不选并确认，r=恢复默认并确认，回车=确认。\n' >&2
     IFS= read -r -p '> ' input || return 1
     [ -z "$input" ] && break
 
     case "$input" in
       a|A)
         for i in "${!selected[@]}"; do selected[$i]=1; done
-        continue
+        break
         ;;
       n|N)
         for i in "${!selected[@]}"; do selected[$i]=0; done
-        continue
+        break
         ;;
       r|R)
         for i in "${!selected[@]}"; do selected[$i]="${defaults[$i]}"; done
-        continue
+        break
         ;;
     esac
 

@@ -18,7 +18,7 @@
 
 交互模式下：
 
-1. 用空格勾选工具，回车确认。
+1. 输入编号切换勾选，回车确认。
 2. 自动补齐 `MODULE_REQUIRES` 中声明的依赖。
 3. 可选择是否强制重跑已经安装的模块。
 4. 安装前强制检查所选工具需要访问的外网地址。
@@ -99,7 +99,11 @@ NODE_DEFAULT=22 ./init.sh
 CUSTOM_TOOLS_ENABLED=0 ./init.sh
 NETWORK_MAX_TIME=15 ./init.sh
 NETWORK_CHECK_URLS='https://github.com/ https://repo.anaconda.com/' ./init.sh
+MINICONDA_SHA256=<手动固定的64位SHA256> ./init.sh
 ```
 
 `NETWORK_CHECK_URLS` 主要用于特殊网络或测试环境，正常安装会根据已选模块自动生成
 需要检查的地址列表。
+
+Miniconda 默认从 Anaconda 官方目录动态获取最新 `latest` 安装包的 SHA256；
+设置 `MINICONDA_SHA256` 可覆盖并固定校验值。
