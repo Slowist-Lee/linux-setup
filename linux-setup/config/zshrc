@@ -1,0 +1,20 @@
+# Managed by linux-setup. Local machine-specific overrides belong in ~/.zshrc.local
+export PATH="$HOME/.local/bin:$PATH"
+
+export ZSH="$HOME/.oh-my-zsh"
+ZSH_THEME="robbyrussell"
+
+plugins=(
+  git
+  zsh-autosuggestions
+  zsh-syntax-highlighting
+)
+
+source "$ZSH/oh-my-zsh.sh"
+
+# Codex CI sessions must not inherit the interactive proxy.
+if [ "${CODEX_CI:-}" = "1" ]; then
+  unset http_proxy https_proxy all_proxy HTTP_PROXY HTTPS_PROXY ALL_PROXY
+fi
+
+[ -f "$HOME/.zshrc.local" ] && source "$HOME/.zshrc.local"
